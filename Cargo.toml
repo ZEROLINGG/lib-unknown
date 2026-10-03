@@ -1,0 +1,58 @@
+[package]
+name = "lib-unknown"
+version = "0.1.0"
+edition = "2024"
+description = "一个神秘的共享库"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ZEROLINGG/lib-unknown"
+exclude = ["TODO_DOCS.md"]
+
+[dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+
+
+
+[features]
+default = [
+#    "std",
+    "rand",
+    "rand-expand",
+    "sys",
+    "types",
+    "crypto"
+]
+std = ["alloc"]
+alloc = []
+
+
+rand-safe-stack = []
+rand-expand = []
+rand = [
+    "dep:wasm-bindgen",
+    "crypto"
+]
+
+
+sys-syscall = []
+sys-win = []
+sys-unix = []
+sys = [
+    "sys-win",
+    "sys-unix",
+    "sys-syscall"
+]
+
+
+types-bytes = []
+types-str = ["types-bytes"]
+types = [
+    "types-str",
+    "types-bytes"
+]
+
+crypto = []
+
+dyntest = []
