@@ -5,3 +5,34 @@ target/
 logs/
 
 TODO_DOCS.md
+
+# ========== Rust 构建产物 ==========
+**/*.rs.bk
+*.pdb
+
+# ========== 环境变量与密钥（务必保留，防止误提交敏感信息） ==========
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+*credentials*
+*secret*
+
+# ========== 编辑器/IDE ==========
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+
+# ========== 操作系统 ==========
+.DS_Store
+Thumbs.db
+
+# ========== 日志与临时文件 ==========
+*.log
+*.swp
+*.swo
+*~

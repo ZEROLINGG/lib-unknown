@@ -1,4 +1,6 @@
-// lib/src/rand.rs
+//! 硬件熵随机数：时间戳熵源（`probe`）、重播种（`seed`）与热路径输出（`next`），另含区间采样与 `fill_bytes`（`rand-expand`）。
+//!
+//! 需要启用 `"rand"` 特性。
 #![allow(unused)]
 
 use crate::crypto::base::{mix64, shuffle_with};
@@ -287,8 +289,8 @@ fn reg_sig() -> u64 {
         core::arch::asm!(
         "pushfd",
         "pop {0}",
-        "call 1f",
-        "1:",
+        "call 2f",
+        "2:",
         "pop {1}",
         "mov {2}, esp",
         out(reg) s32, out(reg) c32, out(reg) sp32,

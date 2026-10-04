@@ -1,4 +1,6 @@
-// lib/src/crypto/base.rs
+//! 自研密码原语实现：SBox 表、雪崩混合函数、轻量流式哈希与 `mse`/`imse` 加解密。实验性质，未经审计，请勿用于生产密码学场景。
+//!
+//! 需要启用 `"crypto"` 特性。
 #![allow(unused)]
 #![no_std]
 pub static SBOX_BASE: [[u8; 256]; 2] = [
@@ -233,6 +235,8 @@ where
         }
 
         let j = (m >> 64) as usize;
+        // SAFETY: `ptr` 来自非空切片，`i/j < len`（`j` 为 Lemire 无偏约减结果，恒小于 `bound = i+1 <= len`），
+        // 两指针均在同一分配内且 `T` 可移动，调用期间无其他借用。
         unsafe {
             core::ptr::swap(ptr.add(i), ptr.add(j));
         }

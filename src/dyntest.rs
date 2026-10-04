@@ -1,4 +1,6 @@
-// lib/src/dyntest.rs
+//! 动态编译运行 harness（仅开发期使用）：将代码片段生成临时 Cargo 工程并编译执行，支持超时、批量与缓存（`DnyRun` / `BatchRunner`）。
+//!
+//! 需要同时启用 `"dyntest"` 与 `"std"` 特性。传入代码将被编译执行，**仅可在隔离沙箱中使用**。
 #![allow(unused)]
 use std::collections::HashMap;
 use std::fmt;
@@ -13,22 +15,53 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::rand;
 
+/// 动态测试运行的系统级错误（区别于被测程序自身的失败）。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
 #[derive(Debug, Clone, PartialEq)]
 pub enum SystemError {
+    /// 无系统级错误；`ok == false` 时表示被测程序自身返回非零退出码。
     None,
+    /// 执行超时并已被终止，载荷为超时阈值。
     Timeout(Duration),
+    /// `cargo build` 失败。
     CompileFailed,
+    /// 子进程无法启动，载荷为系统错误描述。
     ProcessSpawnFailed(String),
 }
 
+/// 单次动态测试的结果，`Display` 输出彩色摘要（超长输出自动截断）。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::dyntest::{BatchRunner, DnyTask};
+///
+/// let task = DnyTask::new("hello", r#"fn main() { println!("hi"); }"#);
+/// let results = BatchRunner::new().run([task]);
+/// assert_eq!(results.len(), 1);
+/// ```
 #[derive(Debug, Clone)]
 pub struct DnyResult {
+    /// 被测程序标准输出全文。
     pub stdout: String,
+    /// 被测程序标准错误全文（已过滤 `Compiling` / `Finished` 行）。
     pub stderr: String,
+    /// 被测程序退出码；系统级失败时为 `-2`，默认构造时为 `-1`。
     pub exit_code: i32,
+    /// 编译耗时。
     pub build_duration: Duration,
+    /// 运行耗时。
     pub run_duration: Duration,
+    /// 被测程序是否以退出码 0 正常结束。
     pub ok: bool,
+    /// 系统级错误，无则为 [`SystemError::None`]。
     pub system_err: SystemError,
 }
 
@@ -171,17 +204,54 @@ impl fmt::Display for DnyResult {
     }
 }
 
+/// 单个动态测试任务：`main.rs` 内容、依赖与运行配置的 Builder。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::dyntest::DnyTask;
+///
+/// let task = DnyTask::new("hello", r#"fn main() { println!("hi"); }"#)
+///     .with_deps(r#"serde = "1""#)
+///     .with_env("RUST_BACKTRACE", "1")
+///     .with_release(false);
+/// assert_eq!(task.tag, "hello");
+/// ```
 #[derive(Clone)]
 pub struct DnyTask {
+    /// 任务标识，用于结果回调用例区分；`From` 元组缺省时为 `"unnamed_task"`。
     pub tag: String,
+    /// 待编译运行的 `main.rs` 源码。
     pub main_code: String,
+    /// 追加到临时工程 `[dependencies]` 的依赖声明片段。
     pub deps: String,
+    /// 注入子进程的环境变量。
     pub envs: HashMap<String, String>,
+    /// 写入临时工程 `.cargo/config.toml` 的配置，无则为 `None`。
     pub cargo_config: Option<String>,
+    /// 是否以 `--release` 编译运行。
     pub is_release: bool,
 }
 
 impl DnyTask {
+    /// 以标识与 `main.rs` 源码创建任务，其余配置取默认值。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use lib_unknown::dyntest::DnyTask;
+    ///
+    /// let task = DnyTask::new("t", "fn main() {}");
+    /// assert_eq!(task.tag, "t");
+    /// ```
     pub fn new(tag: impl Into<String>, code: impl Into<String>) -> Self {
         Self {
             tag: tag.into(),
@@ -192,14 +262,29 @@ impl DnyTask {
             is_release: false,
         }
     }
+    /// 设置 `[dependencies]` 依赖声明片段。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn with_deps(mut self, deps: impl Into<String>) -> Self {
         self.deps = deps.into();
         self
     }
+    /// 注入单个环境变量。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.envs.insert(key.into(), value.into());
         self
     }
+    /// 批量注入环境变量。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn with_envs<I, K, V>(mut self, envs: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -211,11 +296,20 @@ impl DnyTask {
         }
         self
     }
+    /// 设置写入临时工程 `.cargo/config.toml` 的配置。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn with_cargo_config(mut self, config: impl Into<String>) -> Self {
         self.cargo_config = Some(config.into());
         self
     }
-    // [新增] 开启或关闭 release 模式
+    /// 开启或关闭 release 模式。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn with_release(mut self, release: bool) -> Self {
         self.is_release = release;
         self
@@ -235,6 +329,21 @@ impl From<(String, String, Option<String>)> for DnyTask {
     }
 }
 
+/// 批量运行器：串行执行多个 [`DnyTask`]，可选超时、仅编译、依赖缓存与逐任务回调。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::dyntest::{BatchRunner, DnyTask};
+///
+/// let tasks = [DnyTask::new("a", "fn main() {}"), DnyTask::new("b", "fn main() {}")];
+/// let results = BatchRunner::new().only_build(true).run(tasks);
+/// assert_eq!(results.len(), 2);
+/// ```
 pub struct BatchRunner {
     timeout: Option<Duration>,
     only_build: bool,
@@ -249,6 +358,11 @@ impl Default for BatchRunner {
 }
 
 impl BatchRunner {
+    /// 以默认配置（无超时、编译并运行、不缓存、无回调）创建运行器。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn new() -> Self {
         Self {
             timeout: None,
@@ -258,18 +372,38 @@ impl BatchRunner {
         }
     }
 
+    /// 设置单个任务编译 + 运行的总超时，超时后子进程被终止，结果记为 [`SystemError::Timeout`]。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = Some(d);
         self
     }
+    /// 仅编译不运行。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn only_build(mut self, b: bool) -> Self {
         self.only_build = b;
         self
     }
+    /// 启用首任务依赖预热缓存（先空跑一次编译，后续任务复用编译缓存）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn use_cache(mut self, c: bool) -> Self {
         self.use_cache = c;
         self
     }
+    /// 设置每个任务完成后的回调（参数为任务标识与结果）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn on_result<F>(mut self, f: F) -> Self
     where
         F: FnMut(String, DnyResult) + 'static,
@@ -286,6 +420,24 @@ impl BatchRunner {
         self
     }
 
+    /// 串行执行全部任务，返回按输入顺序的 `(标识, 结果)` 列表；空输入直接返回空列表。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::{BatchRunner, DnyTask};
+    ///
+    /// let results = BatchRunner::new().run([DnyTask::new("a", "fn main() {}")]);
+    /// assert!(results[0].1.ok);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// - 任务工程目录创建/文件写入失败（磁盘不可写、权限不足）时 panic，源于内部 `DnyRun` 初始化。
     pub fn run<I, T>(mut self, tasks: I) -> Vec<(String, DnyResult)>
     where
         I: IntoIterator<Item = T>,
@@ -387,6 +539,24 @@ impl BatchRunner {
     }
 }
 
+/// 运行单个动态测试任务的便捷入口（等价于单任务 `BatchRunner`）。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::dyntest::dny_run;
+///
+/// let res = dny_run("fn main() {}", "", None, true);
+/// assert!(res.ok);
+/// ```
+///
+/// # Panics
+///
+/// - 任务工程目录创建/文件写入失败时 panic，源于内部 `DnyRun` 初始化。
 pub fn dny_run(
     main_code: &str,
     deps: &str,
@@ -401,6 +571,24 @@ pub fn dny_run(
     }
 }
 
+/// 批量运行的便捷入口（不使用依赖预热缓存）。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::dyntest::{DnyTask, dny_run_batch};
+///
+/// let results = dny_run_batch([DnyTask::new("a", "fn main() {}")], None, None, None);
+/// assert_eq!(results.len(), 1);
+/// ```
+///
+/// # Panics
+///
+/// - 任务工程目录创建/文件写入失败时 panic，源于内部 `DnyRun` 初始化。
 pub fn dny_run_batch<I, T>(
     task: I,
     task_timeout: Option<Duration>,
@@ -422,6 +610,24 @@ where
     runner.run(task)
 }
 
+/// 批量运行的便捷入口（启用首任务依赖预热缓存，首个结果为 `"init_cache"`）。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::dyntest::{DnyTask, dny_run_batch_use_cache};
+///
+/// let results = dny_run_batch_use_cache([DnyTask::new("a", "fn main() {}")], None, None, None);
+/// assert_eq!(results[0].0, "init_cache");
+/// ```
+///
+/// # Panics
+///
+/// - 任务工程目录创建/文件写入失败时 panic，源于内部 `DnyRun` 初始化。
 pub fn dny_run_batch_use_cache<I, T>(
     task: I,
     task_timeout: Option<Duration>,
@@ -443,18 +649,45 @@ where
     runner.run(task)
 }
 
+/// 单个临时 Cargo 工程的句柄：在 `target/dyn_tests/dny_<id>/` 下生成工程并编译执行，`Drop` 时释放心跳锁。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
 pub struct DnyRun {
+    /// 待编译运行的 `main.rs` 源码。
     pub main_code: String,
+    /// `[dependencies]` 依赖声明片段。
     pub deps: String,
     dir: PathBuf,
     project_name: String,
     lock: DynTestLock,
     envs: HashMap<String, String>,
     cargo_config: Option<String>,
+    /// 是否以 `--release` 编译运行。
     pub is_release: bool,
 }
 
 impl DnyRun {
+    /// 在 `target/dyn_tests` 下创建以纳秒时间戳 + 随机数命名的临时工程并同步文件。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::DnyRun;
+    ///
+    /// let runner = DnyRun::new("fn main() {}", "");
+    /// let res = runner.build(None);
+    /// assert!(res.ok);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// - 系统时钟早于 UNIX 纪元、无法获取当前目录或工程目录/文件创建失败时 panic。
     pub fn new(main_code: &str, deps: &str) -> Self {
         let id = format!(
             "{}_{}",
@@ -488,16 +721,31 @@ impl DnyRun {
         instance
     }
 
+    /// 设置是否以 `--release` 编译运行。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn release(&mut self, release: bool) -> &mut Self {
         self.is_release = release;
         self
     }
 
+    /// 注入单个子进程环境变量。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) -> &mut Self {
         self.envs.insert(key.into(), value.into());
         self
     }
 
+    /// 批量注入子进程环境变量。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn envs<I, K, V>(&mut self, envs: I) -> &mut Self
     where
         I: IntoIterator<Item = (K, V)>,
@@ -510,17 +758,36 @@ impl DnyRun {
         self
     }
 
+    /// 清空已注入的环境变量。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn clear_envs(&mut self) -> &mut Self {
         self.envs.clear();
         self
     }
 
+    /// 设置 `.cargo/config.toml` 内容并立即同步到工程目录。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Panics
+    ///
+    /// - `.cargo` 目录或配置文件写入失败时 panic。
     pub fn cargo_config(&mut self, config: impl Into<String>) -> &mut Self {
         self.cargo_config = Some(config.into());
         self.sync_cargo_config();
         self
     }
 
+    /// 清除 cargo 配置（内存值置空并删除已写入的配置文件，忽略删除失败）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn clear_cargo_config(&mut self) -> &mut Self {
         self.cargo_config = None;
         let config_path = self.dir.join(".cargo").join("config.toml");
@@ -541,6 +808,15 @@ impl DnyRun {
         }
     }
 
+    /// 将当前 `Cargo.toml` / `main.rs` / cargo 配置同步到工程目录。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Panics
+    ///
+    /// - 文件写入失败（磁盘不可写、权限不足）时 panic。
     pub fn sync_files(&self) {
         let cargo_toml = format!(
             r#"[package]
@@ -629,6 +905,20 @@ edition = "2021"
         }
     }
 
+    /// 执行 `cargo build`（`is_release` 为真时加 `--release`），超时则终止并记为 [`SystemError::Timeout`]；自身不 panic，失败均体现在返回的 [`DnyResult`] 中。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::DnyRun;
+    ///
+    /// let res = DnyRun::new("fn main() {}", "").build(None);
+    /// assert!(res.ok);
+    /// ```
     pub fn build(&self, timeout: Option<Duration>) -> DnyResult {
         let mut result = DnyResult::default();
         let mut cmd = Command::new("cargo");
@@ -659,6 +949,20 @@ edition = "2021"
         result
     }
 
+    /// 先编译后直接运行产物；编译失败时直接返回编译结果，不启动进程。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::DnyRun;
+    ///
+    /// let res = DnyRun::new(r#"fn main() { println!("hi"); }"#, "").run(None);
+    /// assert!(res.ok);
+    /// ```
     pub fn run(&self, timeout: Option<Duration>) -> DnyResult {
         let build_result = self.build(timeout);
         if !build_result.ok {
@@ -667,6 +971,12 @@ edition = "2021"
         self.run_no_build(timeout, Some(build_result))
     }
 
+    /// 不重新编译，直接运行已有产物（产物缺失时返回 [`SystemError::ProcessSpawnFailed`] 结果）。
+    /// `build_result` 用于透传编译耗时，无则置零。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
     pub fn run_no_build(
         &self,
         timeout: Option<Duration>,
@@ -747,16 +1057,39 @@ edition = "2021"
         result
     }
 
+    /// 替换 `main.rs` 内容并同步到工程目录（供缓存复用时复写任务代码）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Panics
+    ///
+    /// - 文件写入失败时 panic。
     pub fn reset_main_code(&mut self, main_code: &str) {
         self.main_code = main_code.to_string();
         self.sync_files();
     }
+    /// 替换依赖声明并同步到工程目录。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Panics
+    ///
+    /// - 文件写入失败时 panic。
     pub fn reset_deps(&mut self, deps: &str) {
         self.deps = deps.to_string();
         self.sync_files();
     }
 }
 
+/// 工程心跳锁：在 `target/dyn_tests/lock/` 下创建锁文件并由后台线程每 500ms 续写，`Drop` 时停线程删文件，用于识别僵尸工程。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
 pub struct DynTestLock {
     lock_path: PathBuf,
     stop_signal: Arc<AtomicBool>,
@@ -764,6 +1097,15 @@ pub struct DynTestLock {
 }
 
 impl DynTestLock {
+    /// 创建锁文件并启动心跳线程。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Panics
+    ///
+    /// - 无法获取当前目录、锁目录/锁文件创建失败，或心跳线程无法启动时 panic。
     pub fn new(id: &str) -> Self {
         let mut lock_path = std::env::current_dir().unwrap();
         lock_path.push("target");
@@ -815,6 +1157,23 @@ impl Drop for DynTestLock {
     }
 }
 
+/// 清理全部动态测试工程：等待活跃锁释放（心跳停滞超 1500ms 的视为僵尸并清除其锁），再删除 `target/dyn_tests` 目录。
+///
+/// # Feature Requirement
+///
+/// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::dyntest::clear_dny_project;
+///
+/// clear_dny_project(None);
+/// ```
+///
+/// # Panics
+///
+/// - 无法获取当前目录时 panic；超时仅打印警告，不 panic。
 pub fn clear_dny_project(timeout: Option<Duration>) {
     thread::sleep(Duration::from_secs_f32(0.3));
     let base_dir = std::env::current_dir()

@@ -1,4 +1,6 @@
-// lib/src/types/bytes.rs
+//! 定容字节容器：栈上（`StackBytes`）与堆上（`HeapBytes`，需 `alloc`）实现，`Drop` 与显式擦除均经易失写清零。
+//!
+//! 需要启用 `"types-bytes"` 特性。
 #![allow(unused_qualifications)]
 #![allow(clippy::similar_names)]
 #![allow(unused)]
@@ -10,10 +12,31 @@ use core::fmt;
 use core::hint::black_box;
 use core::sync::atomic::{Ordering, compiler_fence};
 
+/// 字节容器的错误类型。未来可能新增变体/字段，请勿依赖穷尽匹配。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-bytes"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::types::bytes::{Bytes, StackBytes};
+///
+/// let mut b = StackBytes::<4>::new();
+/// let err = b.extend_from_slice(b"toolong").unwrap_err();
+/// assert!(matches!(err, lib_unknown::types::bytes::BytesError::CapacityExceeded { .. }));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BytesError {
-    CapacityExceeded { requested: usize, max: usize },
+    /// 请求长度超出容器容量。
+    CapacityExceeded {
+        /// 请求的总长度（字节）。
+        requested: usize,
+        /// 容器支持的最大长度（字节）。
+        max: usize,
+    },
 }
 
 impl fmt::Display for BytesError {
@@ -29,11 +52,21 @@ impl fmt::Display for BytesError {
 
 impl core::error::Error for BytesError {}
 
+/// 字节容器操作的统一返回类型。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-bytes"` 特性。
+///
+/// # Errors
+///
+/// - 当请求长度超出容器容量时返回 [`BytesError::CapacityExceeded`]。
 pub type BytesResult<T = ()> = Result<T, BytesError>;
 
 #[inline(always)]
 pub(crate) fn volatile_zero(buf: &mut [u8]) {
     for byte in black_box(buf.iter_mut()) {
+        // SAFETY: `byte` 为 `buf` 的独占借用派生的有效可写引用，`write_volatile` 写入对齐的 `u8`。
         unsafe {
             let _: () = core::ptr::write_volatile(black_box(byte), 0);
             black_box(());
@@ -42,28 +75,116 @@ pub(crate) fn volatile_zero(buf: &mut [u8]) {
     compiler_fence(Ordering::SeqCst);
 }
 
+/// 定容字节容器的统一接口：写入、擦除与向更大容器搬运。
+///
+/// 所有实现（[`StackBytes`] / `HeapBytes`）在 `Drop` 与显式擦除时经易失写清零。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-bytes"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::types::bytes::{Bytes, StackBytes};
+///
+/// let mut b = StackBytes::<8>::new();
+/// b.extend_from_slice(b"hi").unwrap();
+/// assert_eq!(b.as_slice(), b"hi");
+/// b.wipe_data();
+/// assert!(b.is_empty());
+/// ```
 pub trait Bytes:
     core::ops::Deref<Target = [u8]> + core::ops::DerefMut + AsRef<[u8]> + AsMut<[u8]> + Default + Sized
 {
+    /// 返回容器容量（字节），与已写入长度无关。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     fn capacity(&self) -> usize;
+    /// 返回已写入数据的长度（字节）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     fn len(&self) -> usize;
 
+    /// 已写入数据是否为空。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// 追加 `other` 的全部字节。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use lib_unknown::types::bytes::{Bytes, StackBytes};
+    ///
+    /// let mut b = StackBytes::<8>::new();
+    /// b.extend_from_slice(b"hi").unwrap();
+    /// assert_eq!(b.len(), 2);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - 当追加后总长度超出容量时返回 [`BytesError::CapacityExceeded`]，容器内容不变。
     fn extend_from_slice(&mut self, other: &[u8]) -> BytesResult;
 
+    /// 清零全部底层存储并将长度置 0。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     fn wipe_data(&mut self);
 
+    /// 以不可变切片查看已写入数据。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     fn as_slice(&self) -> &[u8] {
         self.as_ref()
     }
 
+    /// 以可变切片访问已写入数据（不改变长度）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     fn as_mut_slice(&mut self) -> &mut [u8] {
         self.as_mut()
     }
 
+    /// 将自身内容与 `other` 先后写入新容器，并擦除自身。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use lib_unknown::types::bytes::{Bytes, StackBytes};
+    ///
+    /// let mut b = StackBytes::<8>::new();
+    /// b.extend_from_slice(b"hi").unwrap();
+    /// let c: StackBytes<8> = b.extend_into(b"!").unwrap();
+    /// assert_eq!(c.as_slice(), b"hi!");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - 当任一写入超出目标容器容量时返回 [`BytesError::CapacityExceeded`]。
     fn extend_into<T>(mut self, other: &[u8]) -> BytesResult<T>
     where
         Self: Sized,
@@ -77,6 +198,26 @@ pub trait Bytes:
         Ok(new_buf)
     }
 
+    /// 将 `source` 内容追加到自身，成功后清零 `source`；失败时 `source` 保持不变。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use lib_unknown::types::bytes::{Bytes, StackBytes};
+    ///
+    /// let mut b = StackBytes::<8>::new();
+    /// let mut secret = *b"hi";
+    /// b.extend_and_wipe(&mut secret).unwrap();
+    /// assert_eq!(secret, [0u8; 2]);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - 当追加后总长度超出容量时返回 [`BytesError::CapacityExceeded`]。
     fn extend_and_wipe<T>(&mut self, mut source: T) -> BytesResult
     where
         Self: Sized,
@@ -93,6 +234,26 @@ pub trait Bytes:
 macro_rules! impl_secure_buffer {
     ($name:ident) => {
         impl<const N: usize> $name<N> {
+            /// 将内容搬运到容量为 `M` 的同类容器中。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use lib_unknown::types::bytes::StackBytes;
+            ///
+            /// let mut b = StackBytes::<4>::new();
+            /// b.extend_from_slice(b"hi").unwrap();
+            /// let c = b.try_grow::<8>().unwrap();
+            /// assert_eq!(c.capacity(), 8);
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当已有长度超出 `M` 时返回 [`BytesError::CapacityExceeded`]。
             pub fn try_grow<const M: usize>(self) -> BytesResult<$name<M>> {
                 if self.len > M {
                     return Err(BytesError::CapacityExceeded {
@@ -106,31 +267,75 @@ macro_rules! impl_secure_buffer {
                 Ok(out)
             }
 
+            /// 返回容器容量（字节），恒为 `N`。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
             #[inline(always)]
             pub fn capacity(&self) -> usize {
                 N
             }
 
+            /// 返回已写入数据的长度（字节）。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
             #[inline(always)]
             pub fn len(&self) -> usize {
                 self.len
             }
 
+            /// 已写入数据是否为空。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
             #[inline(always)]
             pub fn is_empty(&self) -> bool {
                 self.len == 0
             }
 
+            /// 以不可变切片查看已写入数据。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
             #[inline(always)]
             pub fn as_slice(&self) -> &[u8] {
                 self.as_ref()
             }
 
+            /// 以可变切片访问已写入数据（不改变长度）。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
             #[inline(always)]
             pub fn as_mut_slice(&mut self) -> &mut [u8] {
                 self.as_mut()
             }
 
+            /// 追加 `other` 的全部字节。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use lib_unknown::types::bytes::StackBytes;
+            ///
+            /// let mut b = StackBytes::<4>::new();
+            /// b.extend_from_slice(b"hi").unwrap();
+            /// assert!(b.extend_from_slice(b"toolong").is_err());
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当追加后总长度超出容量时返回 [`BytesError::CapacityExceeded`]，容器内容不变。
             pub fn extend_from_slice(&mut self, other: &[u8]) -> BytesResult {
                 let new_len =
                     self.len
@@ -150,11 +355,36 @@ macro_rules! impl_secure_buffer {
                 Ok(())
             }
 
+            /// 清零全部底层存储并将长度置 0。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
             pub fn wipe_data(&mut self) {
                 volatile_zero(&mut self.data[..]);
                 self.len = 0;
             }
 
+            /// 将自身内容与 `other` 先后写入新容器，并擦除自身。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use lib_unknown::types::bytes::StackBytes;
+            ///
+            /// let mut b = StackBytes::<8>::new();
+            /// b.extend_from_slice(b"hi").unwrap();
+            /// let c: StackBytes<8> = b.extend_into(b"!").unwrap();
+            /// assert_eq!(c.as_slice(), b"hi!");
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当任一写入超出目标容器容量时返回 [`BytesError::CapacityExceeded`]。
             pub fn extend_into<T>(mut self, other: &[u8]) -> BytesResult<T>
             where
                 T: Bytes + Default,
@@ -166,6 +396,26 @@ macro_rules! impl_secure_buffer {
                 Ok(new_buf)
             }
 
+            /// 将 `source` 内容追加到自身，成功后清零 `source`；失败时 `source` 保持不变。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-bytes"` 特性（`HeapBytes` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use lib_unknown::types::bytes::StackBytes;
+            ///
+            /// let mut b = StackBytes::<8>::new();
+            /// let mut src = *b"hi";
+            /// b.extend_and_wipe(&mut src).unwrap();
+            /// assert_eq!(src, [0u8; 2]);
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当追加后总长度超出容量时返回 [`BytesError::CapacityExceeded`]。
             pub fn extend_and_wipe<T>(&mut self, mut source: T) -> BytesResult
             where
                 T: AsRef<[u8]> + AsMut<[u8]>,
@@ -273,11 +523,31 @@ macro_rules! impl_secure_buffer {
     };
 }
 
+/// 栈上定容字节容器，`Drop` 时自动清零，适用于短密钥、非对称 nonce 等小敏感数据。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-bytes"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::types::bytes::{Bytes, StackBytes};
+///
+/// let mut b = StackBytes::<16>::new();
+/// b.extend_from_slice(b"secret").unwrap();
+/// assert_eq!(b.len(), 6);
+/// ```
 pub struct StackBytes<const N: usize> {
     len: usize,
     data: [u8; N],
 }
 impl<const N: usize> StackBytes<N> {
+    /// 创建长度为 0、内容全零的容器。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 特性。
     pub const fn new() -> Self {
         Self {
             len: 0,
@@ -287,6 +557,21 @@ impl<const N: usize> StackBytes<N> {
 }
 impl_secure_buffer!(StackBytes);
 
+/// 堆上定容字节容器，语义与 [`StackBytes`] 一致，适用于超过栈承载的较大敏感数据。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-bytes"` 与 `"alloc"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::types::bytes::{Bytes, HeapBytes};
+///
+/// let mut b = HeapBytes::<64>::new();
+/// b.extend_from_slice(b"secret").unwrap();
+/// assert_eq!(b.len(), 6);
+/// ```
 #[cfg(feature = "alloc")]
 pub struct HeapBytes<const N: usize> {
     len: usize,
@@ -295,11 +580,17 @@ pub struct HeapBytes<const N: usize> {
 
 #[cfg(feature = "alloc")]
 fn zeroed_box<const N: usize>() -> alloc::boxed::Box<[u8; N]> {
+    // SAFETY: `[u8; N]` 全零为合法值，`assume_init` 安全。
     unsafe { alloc::boxed::Box::<[u8; N]>::new_zeroed().assume_init() }
 }
 
 #[cfg(feature = "alloc")]
 impl<const N: usize> HeapBytes<N> {
+    /// 创建长度为 0、内容全零的容器。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-bytes"` 与 `"alloc"` 特性。
     pub fn new() -> Self {
         Self {
             len: 0,

@@ -1,4 +1,6 @@
-//lib/src/sys/syscall.rs
+//! 裸系统调用 `syscall0~6`：Linux / Android / macOS / Windows 的多架构内联汇编分发，不支持的目标编译期报错。
+//!
+//! 需要启用 `"sys-syscall"` 特性。
 #![no_std]
 #![allow(unused)]
 
@@ -712,17 +714,21 @@ pub unsafe fn syscall4(n: usize, a1: usize, a2: usize, a3: usize, a4: usize) -> 
         );
     }
 
+    // esi 被 LLVM 内部占用，不可作为显式操作数，只能手动 push/mov/pop 传递，
+    // 因此不能再用 options(nostack)。
     #[cfg(all(any(target_os = "linux", target_os = "android"), target_arch = "x86"))]
     unsafe {
         core::arch::asm!(
+        "push esi",
+        "mov esi, {a4}",
         "int 0x80",
+        "pop esi",
+        a4 = in(reg) a4,
         in("eax") n,
         in("ebx") a1,
         in("ecx") a2,
         in("edx") a3,
-        in("esi") a4,
         lateout("eax") ret,
-        options(nostack)
         );
     }
 
@@ -883,18 +889,22 @@ pub unsafe fn syscall5(n: usize, a1: usize, a2: usize, a3: usize, a4: usize, a5:
         );
     }
 
+    // esi 被 LLVM 内部占用，不可作为显式操作数，只能手动 push/mov/pop 传递，
+    // 因此不能再用 options(nostack)。
     #[cfg(all(any(target_os = "linux", target_os = "android"), target_arch = "x86"))]
     unsafe {
         core::arch::asm!(
+        "push esi",
+        "mov esi, {a4}",
         "int 0x80",
+        "pop esi",
+        a4 = in(reg) a4,
         in("eax") n,
         in("ebx") a1,
         in("ecx") a2,
         in("edx") a3,
-        in("esi") a4,
         in("edi") a5,
         lateout("eax") ret,
-        options(nostack)
         );
     }
 
@@ -1085,14 +1095,17 @@ pub unsafe fn syscall6(
         core::arch::asm!(
         "push ebp",
         "mov ebp, {a6}",
+        "push esi",
+        "mov esi, {a4}",
         "int 0x80",
+        "pop esi",
         "pop ebp",
         a6 = in(reg) a6,
+        a4 = in(reg) a4,
         inout("eax") n => ret,
         in("ebx") a1,
         in("ecx") a2,
         in("edx") a3,
-        in("esi") a4,
         in("edi") a5,
         );
     }

@@ -1,4 +1,6 @@
-//lib/src/sys/unix.rs
+//! Unix 系统封装：各平台调用号/标志位（`syscall`）与 `dlopen`/`dlsym` 动态符号解析（`resolve`）。
+//!
+//! 需要启用 `"sys-unix"` 特性。
 #[cfg(feature = "sys-syscall")]
 pub mod syscall;
 
@@ -40,16 +42,22 @@ pub fn resolve<T: Sized + Copy>(dylib: &str, name: &str) -> Option<T> {
         return None;
     }
 
+    // SAFETY: `dylib_buf` 以输入字节填充、剩余补 0，且已拒绝含内嵌 NUL 的输入，
+    // 故指针指向合法 NUL 结尾字符串，调用期间有效；`dlopen` 为系统提供函数。
     let handle = unsafe { dlopen(dylib_buf.as_ptr() as *const i8, RTLD_LAZY) };
     if handle.is_null() {
         return None;
     }
 
+    // SAFETY: `handle` 来自成功的 `dlopen`；`name_buf` 同理为合法 NUL 结尾字符串，
+    // 调用期间有效。
     let sym = unsafe { dlsym(handle, name_buf.as_ptr() as *const i8) };
     if sym.is_null() {
         return None;
     }
 
+    // SAFETY: 已检查 `sym` 非空；调用方以 `T: Sized + Copy` 声明目标签名，
+    // 类型正确性由调用方保证（见函数文档）。
     Some(unsafe { mem::transmute_copy(&sym) })
 }
 

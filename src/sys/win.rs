@@ -1,3 +1,6 @@
+//! Windows 系统封装：经 `GetModuleHandleA` / `LoadLibraryA` / `GetProcAddress` 动态解析 DLL 导出（`resolve`）。
+//!
+//! 需要启用 `"sys-win"` 特性，仅 Windows 目标有效。
 #[cfg(all(windows, target_arch = "x86"))]
 macro_rules! __winlink {
     ($library:literal $abi:literal $($link_name:literal)? fn $($function:tt)*) => (

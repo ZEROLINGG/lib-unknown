@@ -1,4 +1,6 @@
-// lib/src/sys/unix/syscall.rs
+//! Unix 裸调用的高层封装：各平台调用号（`constants`）、标志位（`flags`）、`ptrace` 请求号（`ptrace_req`）、统一错误（`SysResult` / `SysErr`）与常用调用封装（`sys_*`）。
+//!
+//! 需要启用 `"sys-unix"` 特性。
 
 use core::error::Error;
 use core::ffi::CStr;
@@ -148,6 +150,11 @@ use crate::sys::syscall::*;
 // =========================================================================
 // Linux x86_64
 // =========================================================================
+/// Linux x86_64 平台的裸系统调用号。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(all(
     any(target_os = "linux", target_os = "android"),
     target_arch = "x86_64"
@@ -215,6 +222,11 @@ pub mod constants {
 // =========================================================================
 // Linux x86 (32-bit)
 // =========================================================================
+/// Linux x86（32 位）平台的裸系统调用号。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(all(any(target_os = "linux", target_os = "android"), target_arch = "x86"))]
 pub mod constants {
     pub const EXIT: usize = 1;
@@ -273,6 +285,11 @@ pub mod constants {
 // =========================================================================
 // Linux aarch64 / riscv64 (asm-generic)
 // =========================================================================
+/// Linux aarch64 / riscv64 平台的裸系统调用号（asm-generic）。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(all(
     any(target_os = "linux", target_os = "android"),
     any(target_arch = "aarch64", target_arch = "riscv64")
@@ -329,6 +346,11 @@ pub mod constants {
 // =========================================================================
 // macOS (Darwin) XNU BSD Syscalls
 // =========================================================================
+/// macOS（Darwin XNU）平台的 BSD 系统调用号。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(target_os = "macos")]
 pub mod constants {
     pub const EXIT: usize = 1;
@@ -376,6 +398,11 @@ pub mod constants {
 // =========================================================================
 // 标志位 (Flags) 针对非 macOS 平台
 // =========================================================================
+/// 非 macOS 平台的 open/mmap/socket 等标志位常量。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(not(target_os = "macos"))]
 pub mod flags {
     pub const O_RDONLY: usize = 0;
@@ -419,6 +446,11 @@ pub mod flags {
 // =========================================================================
 // 标志位 (Flags) 针对 macOS 平台
 // =========================================================================
+/// macOS 平台的 open/mmap/socket 等标志位常量。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(target_os = "macos")]
 pub mod flags {
     pub const O_RDONLY: usize = 0x0000;
@@ -454,6 +486,11 @@ pub mod flags {
     pub const EVFILT_WRITE: i16 = -2;
 }
 
+/// 非 macOS 平台的 `ptrace` 请求号常量。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(not(target_os = "macos"))]
 pub mod ptrace_req {
     pub const PTRACE_TRACEME: usize = 0;
@@ -483,6 +520,11 @@ pub mod ptrace_req {
     pub const PTRACE_O_TRACEEXIT: usize = 1 << 6;
 }
 
+/// macOS 平台的 `ptrace` 请求号常量。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[cfg(target_os = "macos")]
 pub mod ptrace_req {
     pub const PT_TRACE_ME: usize = 0;
@@ -501,8 +543,22 @@ pub mod ptrace_req {
     pub const PT_DENY_ATTACH: usize = 31;
 }
 
+/// 裸系统调用封装的统一返回类型。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Errors
+///
+/// - 内核返回 `-4095..0` 范围内的负值时返回 [`SysErr::Ret`]，其余情况见各调用方的 `# Errors` 说明。
 pub type SysResult<T = usize> = Result<T, SysErr>;
 
+/// 裸系统调用封装的错误类型。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
 #[derive(Debug, Clone)]
 pub enum SysErr {
     /// 操作系统返回的错误码 (errno)
@@ -511,13 +567,45 @@ pub enum SysErr {
     // Arg(String),
     Arg(ErrorMessage),
 }
+/// 定容 64 字节的错误消息，以 UTF-8 存储，超长截断。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use core::str::FromStr;
+/// use lib_unknown::sys::unix::syscall::ErrorMessage;
+///
+/// let msg: ErrorMessage = "bad fd".parse().unwrap();
+/// assert_eq!(msg.as_str(), "bad fd");
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct ErrorMessage {
     buf: [u8; 64],
     len: u8,
 }
 impl ErrorMessage {
+    /// 以 `&str` 形式查看消息内容。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"sys-unix"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use core::str::FromStr;
+    /// use lib_unknown::sys::unix::syscall::ErrorMessage;
+    ///
+    /// let msg: ErrorMessage = "bad fd".parse().unwrap();
+    /// assert_eq!(msg.as_str(), "bad fd");
+    /// ```
     pub fn as_str(&self) -> &str {
+        // SAFETY: `buf[..len]` 仅由 `FromStr` 经合法 UTF-8 切片写入，`len` 不超过 64，
+        // 因此该切片恒为合法 UTF-8。
         unsafe { core::str::from_utf8_unchecked(&self.buf[..self.len as usize]) }
     }
 }
@@ -559,33 +647,97 @@ fn as_sys_result(ret: isize) -> SysResult {
     }
 }
 
+/// 退出当前进程，不返回。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_exit;
+///
+/// sys_exit(0);
+/// ```
 #[inline(always)]
 pub fn sys_exit(status: usize) -> ! {
+    // SAFETY: `EXIT` 为合法调用号，`status` 为按值传递的退出码，无指针参数。
     unsafe {
         syscall1(constants::EXIT, status);
     }
     ::core::unreachable!("exit syscall should not return")
 }
 
+/// 获取当前进程 ID。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::sys::unix::syscall::sys_getpid;
+///
+/// let pid = sys_getpid();
+/// assert!(pid > 0);
+/// ```
 #[inline(always)]
 pub fn sys_getpid() -> usize {
+    // SAFETY: `GETPID` 为合法调用号，无参数，不触碰用户内存。
     unsafe { syscall0(constants::GETPID) as usize }
 }
 
+/// 获取当前线程 ID（macOS 下为 `THREAD_SELFID`）。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::sys::unix::syscall::sys_gettid;
+///
+/// let tid = sys_gettid();
+/// assert!(tid > 0);
+/// ```
 #[inline(always)]
 pub fn sys_gettid() -> usize {
     #[cfg(target_os = "macos")]
+    // SAFETY: `THREAD_SELFID` 为合法调用号，无参数，不触碰用户内存。
     unsafe {
         syscall0(constants::THREAD_SELFID) as usize
     }
     #[cfg(not(target_os = "macos"))]
+    // SAFETY: `GETTID` 为合法调用号，无参数，不触碰用户内存。
     unsafe {
         syscall0(constants::GETTID) as usize
     }
 }
 
+/// 从文件描述符读取至多 `buf.len()` 字节。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_read;
+///
+/// let mut buf = [0u8; 16];
+/// let _ = sys_read(0, &mut buf);
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 无效或不可读时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_read(fd: usize, buf: &mut [u8]) -> SysResult {
+    // SAFETY: `READ` 为合法调用号；`buf` 在调用期间有效且可写，长度如实传递。
     unsafe {
         as_sys_result(syscall3(
             constants::READ,
@@ -596,8 +748,26 @@ pub fn sys_read(fd: usize, buf: &mut [u8]) -> SysResult {
     }
 }
 
+/// 向文件描述符写入 `buf` 的全部内容（单次调用，不保证写完）。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_write;
+///
+/// let _ = sys_write(1, b"hi");
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 无效或不可写时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_write(fd: usize, buf: &[u8]) -> SysResult {
+    // SAFETY: `WRITE` 为合法调用号；`buf` 在调用期间有效且可读，长度如实传递。
     unsafe {
         as_sys_result(syscall3(
             constants::WRITE,
@@ -608,14 +778,55 @@ pub fn sys_write(fd: usize, buf: &[u8]) -> SysResult {
     }
 }
 
+/// 关闭文件描述符。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_close;
+///
+/// let _ = sys_close(3);
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 不是已打开的描述符时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_close(fd: usize) -> SysResult {
+    // SAFETY: `CLOSE` 为合法调用号，`fd` 按值传递，无指针参数。
     unsafe { as_sys_result(syscall1(constants::CLOSE, fd)) }
 }
 
+/// 以 `flags`/`mode` 打开 `path` 指向的路径，返回文件描述符。
+///
+/// aarch64/riscv64 上经 `OPENAT + AT_FDCWD` 实现，其余经 `OPEN` 实现。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use core::ffi::CStr;
+/// use lib_unknown::sys::unix::syscall::{flags, sys_open};
+///
+/// let path = CStr::from_bytes_with_nul(b"/tmp\0").unwrap();
+/// let _ = sys_open(path, flags::O_RDONLY, 0);
+/// ```
+///
+/// # Errors
+///
+/// - 当路径不存在、无权限或 `flags` 非法时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_open(path: &CStr, flags: usize, mode: usize) -> SysResult {
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    // SAFETY: 调用号与参数顺序符合目标 ABI；`path` 为合法 NUL 结尾 C 字符串，
+    // 在调用期间有效；`AT_FDCWD` 按值传递。
     unsafe {
         as_sys_result(syscall4(
             constants::OPENAT,
@@ -626,6 +837,8 @@ pub fn sys_open(path: &CStr, flags: usize, mode: usize) -> SysResult {
         ))
     }
     #[cfg(not(any(target_arch = "aarch64", target_arch = "riscv64")))]
+    // SAFETY: 调用号与参数顺序符合目标 ABI；`path` 为合法 NUL 结尾 C 字符串，
+    // 在调用期间有效。
     unsafe {
         as_sys_result(syscall3(
             constants::OPEN,
@@ -636,11 +849,56 @@ pub fn sys_open(path: &CStr, flags: usize, mode: usize) -> SysResult {
     }
 }
 
+/// 重定位文件描述符的读写偏移。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_lseek;
+///
+/// let _ = sys_lseek(0, 0, 0);
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 不可定位或 `whence` 非法时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_lseek(fd: usize, offset: isize, whence: usize) -> SysResult {
+    // SAFETY: `LSEEK` 为合法调用号，所有参数按值传递，无指针参数。
     unsafe { as_sys_result(syscall3(constants::LSEEK, fd, offset as usize, whence)) }
 }
 
+/// 建立内存映射，返回映射起始地址。
+///
+/// 32 位 x86 上经 `MMAP2` 实现（`offset` 须按页对齐），其余经 `MMAP` 实现。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::{flags, sys_mmap};
+///
+/// let _ = sys_mmap(
+///     core::ptr::null_mut(),
+///     4096,
+///     flags::PROT_READ | flags::PROT_WRITE,
+///     flags::MAP_PRIVATE | flags::MAP_ANONYMOUS,
+///     usize::MAX,
+///     0,
+/// );
+/// ```
+///
+/// # Errors
+///
+/// - 当参数非法（如 `len` 为 0、无权限）时返回 [`SysErr::Ret`]（内核 errno）。
+/// - 32 位 x86 上 `offset` 未按 4096 对齐时返回 [`SysErr::Arg`]。
 #[inline(always)]
 pub fn sys_mmap(
     addr: *mut u8,
@@ -653,10 +911,17 @@ pub fn sys_mmap(
     #[cfg(all(any(target_os = "linux", target_os = "android"), target_arch = "x86"))]
     {
         if offset % 4096 != 0 {
-            return Err(SysErr::Arg(
-                "offset must be a multiple of 4096 on 32-bit x86".to_string(),
-            ));
+            const MSG: &str = "offset must be a multiple of 4096 on 32-bit x86";
+            let bytes = MSG.as_bytes();
+            let len = bytes.len().min(64);
+            let mut buf = [0u8; 64];
+            buf[..len].copy_from_slice(&bytes[..len]);
+            return Err(SysErr::Arg(ErrorMessage {
+                buf,
+                len: len as u8,
+            }));
         }
+        // SAFETY: `MMAP2` 为合法调用号；`addr` 可为空（由内核选择地址），其余按值传递。
         unsafe {
             as_sys_result(syscall6(
                 constants::MMAP2,
@@ -670,6 +935,7 @@ pub fn sys_mmap(
         }
     }
     #[cfg(not(all(any(target_os = "linux", target_os = "android"), target_arch = "x86")))]
+    // SAFETY: `MMAP` 为合法调用号；`addr` 可为空（由内核选择地址），其余按值传递。
     unsafe {
         as_sys_result(syscall6(
             constants::MMAP,
@@ -683,23 +949,98 @@ pub fn sys_mmap(
     }
 }
 
+/// 解除由 [`sys_mmap`] 建立的内存映射。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_munmap;
+///
+/// let _ = sys_munmap(core::ptr::null_mut(), 4096);
+/// ```
+///
+/// # Errors
+///
+/// - 当地址区间未映射时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_munmap(addr: *mut u8, len: usize) -> SysResult {
+    // SAFETY: `MUNMAP` 为合法调用号；`addr`/`len` 应对应既有映射，按值传递。
     unsafe { as_sys_result(syscall2(constants::MUNMAP, addr as usize, len)) }
 }
 
+/// 修改既有内存映射的保护属性。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::{flags, sys_mprotect};
+///
+/// let _ = sys_mprotect(core::ptr::null_mut(), 4096, flags::PROT_READ);
+/// ```
+///
+/// # Errors
+///
+/// - 当地址区间未映射或 `prot` 非法时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_mprotect(addr: *mut u8, len: usize, prot: usize) -> SysResult {
+    // SAFETY: `MPROTECT` 为合法调用号；`addr`/`len` 应对应既有映射，按值传递。
     unsafe { as_sys_result(syscall3(constants::MPROTECT, addr as usize, len, prot)) }
 }
 
+/// 创建套接字，返回文件描述符。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::{flags, sys_socket};
+///
+/// let _ = sys_socket(flags::AF_INET, flags::SOCK_STREAM, 0);
+/// ```
+///
+/// # Errors
+///
+/// - 当协议族/类型不支持时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_socket(domain: usize, ty: usize, protocol: usize) -> SysResult {
+    // SAFETY: `SOCKET` 为合法调用号，所有参数按值传递，无指针参数。
     unsafe { as_sys_result(syscall3(constants::SOCKET, domain, ty, protocol)) }
 }
 
+/// 将套接字绑定到 `addr` 描述的地址上。
+///
+/// `addr` 应为 `sockaddr` 系列结构的原始字节。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_bind;
+///
+/// let addr = [0u8; 16];
+/// let _ = sys_bind(3, &addr);
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 非套接字或地址不可用时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_bind(fd: usize, addr: &[u8]) -> SysResult {
+    // SAFETY: `BIND` 为合法调用号；`addr` 在调用期间有效且可读，长度如实传递。
     unsafe {
         as_sys_result(syscall3(
             constants::BIND,
@@ -710,14 +1051,54 @@ pub fn sys_bind(fd: usize, addr: &[u8]) -> SysResult {
     }
 }
 
+/// 使套接字进入监听状态。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_listen;
+///
+/// let _ = sys_listen(3, 16);
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 非套接字或未绑定时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_listen(fd: usize, backlog: usize) -> SysResult {
+    // SAFETY: `LISTEN` 为合法调用号，所有参数按值传递，无指针参数。
     unsafe { as_sys_result(syscall2(constants::LISTEN, fd, backlog)) }
 }
 
+/// 接受监听套接字上的连接，返回 `(新连接 fd, 对端地址长度)`。
+///
+/// 对端地址写入 `addr_buf`，实际长度经内核回写。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_accept;
+///
+/// let mut buf = [0u8; 32];
+/// let _ = sys_accept(3, &mut buf);
+/// ```
+///
+/// # Errors
+///
+/// - 当 `fd` 未监听或无待处理连接时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_accept(fd: usize, addr_buf: &mut [u8]) -> Result<(usize, usize), SysErr> {
     let mut addrlen: u32 = addr_buf.len() as u32;
+    // SAFETY: `ACCEPT` 为合法调用号；`addr_buf` 在调用期间有效且可写，
+    // `addrlen` 指向调用栈上的 `u32`，调用期间有效且可读写。
     let ret = unsafe {
         syscall3(
             constants::ACCEPT,
@@ -730,8 +1111,27 @@ pub fn sys_accept(fd: usize, addr_buf: &mut [u8]) -> Result<(usize, usize), SysE
     Ok((new_fd, addrlen as usize))
 }
 
+/// 将套接字连接到 `addr` 描述的地址上。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_connect;
+///
+/// let addr = [0u8; 16];
+/// let _ = sys_connect(3, &addr);
+/// ```
+///
+/// # Errors
+///
+/// - 当目标不可达或连接被拒绝时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_connect(fd: usize, addr: &[u8]) -> SysResult {
+    // SAFETY: `CONNECT` 为合法调用号；`addr` 在调用期间有效且可读，长度如实传递。
     unsafe {
         as_sys_result(syscall3(
             constants::CONNECT,
@@ -742,23 +1142,65 @@ pub fn sys_connect(fd: usize, addr: &[u8]) -> SysResult {
     }
 }
 
+/// 派生子进程，父进程返回子进程 PID，子进程返回 0。
+///
+/// aarch64/riscv64 上经 `CLONE + SIGCHLD`（栈传 0，Copy-On-Write）实现，
+/// 其余经 `FORK` 实现。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_fork;
+///
+/// let _ = sys_fork();
+/// ```
+///
+/// # Errors
+///
+/// - 当进程数达到上限或内存不足时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_fork() -> SysResult {
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
+    // SAFETY: `CLONE` 为合法调用号；仅传标志与空指针（clone 传 0 栈即 fork 语义），
+    // 不触碰用户内存。
+    // clone(flags, child_stack, parent_tidptr, tls, child_tidptr)
+    // stack 传 0 会触发 Copy-On-Write，与传统的 fork 行为一致。
     unsafe {
-        // clone(flags, child_stack, parent_tidptr, tls, child_tidptr)
-        // stack 传 0 会触发 Copy-On-Write，与传统的 fork 行为一致。
         as_sys_result(syscall5(constants::CLONE, flags::SIGCHLD, 0, 0, 0, 0))
     }
 
     #[cfg(not(any(target_arch = "aarch64", target_arch = "riscv64")))]
+    // SAFETY: `FORK` 为合法调用号，无参数，不触碰用户内存。
     unsafe {
         as_sys_result(syscall0(constants::FORK))
     }
 }
 
+/// 等待子进程状态变化，`status`/`rusage` 可为空指针表示不接收。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::sys_wait4;
+///
+/// let _ = sys_wait4(-1, core::ptr::null_mut(), 0, core::ptr::null_mut());
+/// ```
+///
+/// # Errors
+///
+/// - 当 `pid` 无效或无子进程时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_wait4(pid: isize, status: *mut i32, options: usize, rusage: *mut u8) -> SysResult {
+    // SAFETY: `WAIT4` 为合法调用号；`status`/`rusage` 为空或指向调用方保证有效的
+    // 可写内存，调用期间保持有效。
     unsafe {
         as_sys_result(syscall4(
             constants::WAIT4,
@@ -770,8 +1212,31 @@ pub fn sys_wait4(pid: isize, status: *mut i32, options: usize, rusage: *mut u8) 
     }
 }
 
+/// 以 `argv`/`envp` 执行 `path` 指定的程序，成功时不返回。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use core::ffi::CStr;
+/// use lib_unknown::sys::unix::syscall::sys_execve;
+///
+/// let path = CStr::from_bytes_with_nul(b"/bin/true\0").unwrap();
+/// let argv: [*const u8; 1] = [path.as_ptr() as *const u8];
+/// let envp: [*const u8; 0] = [];
+/// let _ = sys_execve(path, &argv, &envp);
+/// ```
+///
+/// # Errors
+///
+/// - 当程序不存在、无执行权限或参数非法时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_execve(path: &CStr, argv: &[*const u8], envp: &[*const u8]) -> SysResult {
+    // SAFETY: `EXECVE` 为合法调用号；`path` 为合法 NUL 结尾字符串，`argv`/`envp`
+    // 为调用期间有效的指针数组，其元素按目标约定指向合法字符串或为空。
     unsafe {
         as_sys_result(syscall3(
             constants::EXECVE,
@@ -782,8 +1247,27 @@ pub fn sys_execve(path: &CStr, argv: &[*const u8], envp: &[*const u8]) -> SysRes
     }
 }
 
+/// 发起 `ptrace` 调试请求，请求号见 [`ptrace_req`]。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"sys-unix"` 特性。
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use lib_unknown::sys::unix::syscall::{ptrace_req, sys_ptrace};
+///
+/// let _ = sys_ptrace(ptrace_req::PTRACE_TRACEME, 0, 0, 0);
+/// ```
+///
+/// # Errors
+///
+/// - 当目标进程不存在、无权限或请求号非法时返回 [`SysErr::Ret`]（内核 errno）。
 #[inline(always)]
 pub fn sys_ptrace(request: usize, pid: isize, addr: usize, data: usize) -> SysResult {
+    // SAFETY: `PTRACE` 为合法调用号；`request` 取自 `ptrace_req`，其余参数语义
+    // 由具体请求号决定，按值传递。
     unsafe {
         as_sys_result(syscall4(
             constants::PTRACE,

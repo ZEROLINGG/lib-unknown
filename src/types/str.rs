@@ -1,4 +1,6 @@
-// lib/src/types/str.rs
+//! 定容 UTF-8 字符串容器：栈上（`StackStr`）与堆上（`HeapStr`，需 `alloc`）实现，写入时校验编码，源缓冲按需擦除。
+//!
+//! 需要启用 `"types-str"` 特性。
 #![allow(unused_qualifications)]
 #![allow(clippy::similar_names)]
 #![allow(unused)]
@@ -12,10 +14,28 @@ use super::bytes::{Bytes, BytesError, BytesResult, StackBytes, volatile_zero};
 use core::convert::TryFrom;
 use core::str::Utf8Error;
 
+/// 安全字符串的错误类型。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-str"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use core::convert::TryInto;
+/// use lib_unknown::types::str::{StackStr, StrError};
+///
+/// let res: Result<StackStr<2>, _> = "toolong".try_into();
+/// assert!(matches!(res, Err(StrError::CapacityExceeded(_))));
+/// ```
 #[derive(Debug)]
 pub enum StrError {
+    /// 长度超出容器容量。
     CapacityExceeded(BytesError),
+    /// 源内容不是合法 UTF-8（源仍会被清零）。
     InvalidUtf8(Utf8Error),
+    /// 收到空指针。
     NullPointer,
 }
 
@@ -44,37 +64,118 @@ where
     res
 }
 
+/// 安全字符串的统一接口：只读视图，内部恒为合法 UTF-8。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-str"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use core::convert::TryInto;
+/// use lib_unknown::types::str::{StackStr, Str};
+///
+/// let s: StackStr<8> = "hi".try_into().unwrap();
+/// assert_eq!(s.as_str(), "hi");
+/// assert_eq!(s.len(), 2);
+/// ```
 pub trait Str:
     ::core::ops::Deref<Target = str> + ::core::fmt::Display + ::core::fmt::Debug + Send + Sync
 {
+    /// 以 `&str` 形式查看内容。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 特性。
     fn as_str(&self) -> &str;
 
+    /// 以字节切片查看内容。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 特性。
     #[inline(always)]
     fn as_bytes(&self) -> &[u8] {
         self.as_str().as_bytes()
     }
 
+    /// 类型擦除的堆克隆，用于 `Box<dyn Str>` 容器。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 与 `"alloc"` 特性。
     #[cfg(feature = "alloc")]
     fn dyn_clone(&self) -> alloc::boxed::Box<dyn Str>;
 
+    /// 返回内容的字节长度。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 特性。
     #[inline(always)]
     fn len(&self) -> usize {
         self.as_str().len()
     }
 
+    /// 内容是否为空。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 特性。
     #[inline(always)]
     fn is_empty(&self) -> bool {
         self.as_str().is_empty()
     }
 }
 
+/// 栈上定容安全字符串，`Drop` 时自动清零，适用于短口令、令牌等小敏感文本。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-str"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use core::convert::TryInto;
+/// use lib_unknown::types::str::StackStr;
+///
+/// let s: StackStr<8> = "hi".try_into().unwrap();
+/// assert_eq!(&*s, "hi");
+/// ```
 pub struct StackStr<const N: usize>(StackBytes<N>);
 
+/// 堆上定容安全字符串，语义与 [`StackStr`] 一致，适用于较长的敏感文本。
+///
+/// # Feature Requirement
+///
+/// 需要启用 `"types-str"` 与 `"alloc"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use core::convert::TryInto;
+/// use lib_unknown::types::str::HeapStr;
+///
+/// let s: HeapStr<16> = "hi".try_into().unwrap();
+/// assert_eq!(&*s, "hi");
+/// ```
 #[cfg(feature = "alloc")]
 pub struct HeapStr<const N: usize>(HeapBytes<N>);
 
 impl<const N: usize> StackStr<N> {
+    /// 容器容量（字节）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 特性。
     pub const CAPACITY: usize = N;
+    /// 创建空字符串。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 特性。
     #[inline(always)]
     pub const fn new() -> Self {
         Self(StackBytes::new())
@@ -83,7 +184,17 @@ impl<const N: usize> StackStr<N> {
 
 #[cfg(feature = "alloc")]
 impl<const N: usize> HeapStr<N> {
+    /// 容器容量（字节）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 与 `"alloc"` 特性。
     pub const CAPACITY: usize = N;
+    /// 创建空字符串。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 与 `"alloc"` 特性。
     #[inline(always)]
     pub fn new() -> Self {
         Self(HeapBytes::new())
@@ -116,6 +227,7 @@ macro_rules! impl_secure_str_base {
                     return Ok(Self::new());
                 }
 
+                // SAFETY: `ptr` 非空已检查；有效性、对齐与独占性由本函数的 `# Safety` 约定保证。
                 let slice = unsafe { ::core::slice::from_raw_parts_mut(ptr, len) };
 
                 let mut out = Self::new();
@@ -130,6 +242,30 @@ macro_rules! impl_secure_str_base {
                     .map_err(StrError::CapacityExceeded)
             }
 
+            /// 将内容搬运到容量为 `M` 的同类字符串中。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-str"` 特性（`HeapStr` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use core::convert::TryInto;
+            /// use lib_unknown::types::str::StackStr;
+            ///
+            /// let s: StackStr<4> = "hi".try_into().unwrap();
+            /// let c = s.try_grow::<8>().unwrap();
+            /// assert_eq!(&*c, "hi");
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当已有长度超出 `M` 时返回 [`StrError::CapacityExceeded`]。
+            ///
+            /// # Panics
+            ///
+            /// - 内部 `expect("Capacity already checked")`：前置长度检查保证不触发，仅防御性保留。
             #[inline]
             pub fn try_grow<const M: usize>(self) -> Result<$name<M>, StrError> {
                 if M < self.len() {
@@ -146,6 +282,30 @@ macro_rules! impl_secure_str_base {
                 Ok(larger)
             }
 
+            /// 将自身与 `suffix` 拼接为容量 `M` 的新字符串。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-str"` 特性（`HeapStr` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use core::convert::TryInto;
+            /// use lib_unknown::types::str::StackStr;
+            ///
+            /// let s: StackStr<4> = "hi".try_into().unwrap();
+            /// let c = s.push_str_into::<8>("!").unwrap();
+            /// assert_eq!(&*c, "hi!");
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当拼接后长度超出 `M` 时返回 [`StrError::CapacityExceeded`]。
+            ///
+            /// # Panics
+            ///
+            /// - 两处内部 `unwrap`：前置长度检查保证不触发，仅防御性保留。
             #[inline]
             pub fn push_str_into<const M: usize>(self, suffix: &str) -> Result<$name<M>, StrError> {
                 let required_len = self.len() + suffix.len();
@@ -161,6 +321,26 @@ macro_rules! impl_secure_str_base {
                 Ok(larger)
             }
 
+            /// 将自身与 `rhs` 拼接为容量 `M` 的新字符串（`rhs` 为任意可借用为 `str` 的类型）。
+            ///
+            /// # Feature Requirement
+            ///
+            /// 需要启用 `"types-str"` 特性（`HeapStr` 相关还需 `"alloc"` 特性）。
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            /// use core::convert::TryInto;
+            /// use lib_unknown::types::str::StackStr;
+            ///
+            /// let s: StackStr<4> = "hi".try_into().unwrap();
+            /// let c = s.concat_into::<8>("!").unwrap();
+            /// assert_eq!(&*c, "hi!");
+            /// ```
+            ///
+            /// # Errors
+            ///
+            /// - 当拼接后长度超出 `M` 时返回 [`StrError::CapacityExceeded`]。
             pub fn concat_into<const M: usize>(
                 self,
                 rhs: impl ::core::convert::AsRef<str>,
@@ -182,6 +362,7 @@ macro_rules! impl_secure_str_base {
         impl<const N: usize> Str for $name<N> {
             #[inline(always)]
             fn as_str(&self) -> &str {
+                // SAFETY: 类型不变式保证内部字节恒为合法 UTF-8（经 `try_push_str` 校验写入）。
                 unsafe { ::core::str::from_utf8_unchecked(self.0.as_slice()) }
             }
 
@@ -378,6 +559,11 @@ __impl_common_str_traits!(HeapStr);
 
 #[cfg(feature = "alloc")]
 impl<const N: usize> HeapStr<N> {
+    /// 将内容复制为普通 `String`（敏感内存外泄，谨慎使用，已废弃）。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 与 `"alloc"` 特性。
     #[inline(always)]
     #[deprecated(note = "This leaks secure memory into alloc::string::String. Use with caution.")]
     pub fn leak_into_string(self) -> alloc::string::String {
@@ -388,6 +574,30 @@ impl<const N: usize> HeapStr<N> {
 
 #[cfg(feature = "alloc")]
 impl<const N: usize> StackStr<N> {
+    /// 将栈字符串搬运为容量 `M` 的堆字符串。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要启用 `"types-str"` 与 `"alloc"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use core::convert::TryInto;
+    /// use lib_unknown::types::str::StackStr;
+    ///
+    /// let s: StackStr<4> = "hi".try_into().unwrap();
+    /// let h = s.into_heap::<8>().unwrap();
+    /// assert_eq!(&*h, "hi");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - 当已有长度超出 `M` 时返回 [`StrError::CapacityExceeded`]。
+    ///
+    /// # Panics
+    ///
+    /// - 内部 `expect("Capacity checked")`：前置长度检查保证不触发，仅防御性保留。
     #[inline]
     pub fn into_heap<const M: usize>(self) -> Result<HeapStr<M>, StrError> {
         if M < self.len() {
