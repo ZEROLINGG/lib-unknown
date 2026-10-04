@@ -26,6 +26,12 @@
 
 ---
 
+## [0.1.2] - 2026-10-04
+
+### 修复 (Fixed)
+
+- 补 `#![cfg_attr(docsrs, feature(doc_cfg))]`，否则 docs.rs（`--cfg docsrs`）构建因实验性 `doc(cfg)` 属性失败；stable 工具链不受影响。已用与 docs.rs 相同版本 nightly（1.101.0）复现验证通过
+
 ## [0.1.1] - 2026-10-04
 
 ### 新增 (Added)
