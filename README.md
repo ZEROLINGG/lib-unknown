@@ -54,7 +54,7 @@
 
 ```toml
 [dependencies]
-lib-unknown = "0.1.0"
+lib-unknown = "0.1.1"
 ```
 
 运行此示例需启用 `rand` 特性（默认已启用）。

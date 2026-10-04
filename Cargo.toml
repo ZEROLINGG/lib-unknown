@@ -1,6 +1,6 @@
 [package]
 name = "lib-unknown"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "一个神秘的共享库"
 license = "MIT"

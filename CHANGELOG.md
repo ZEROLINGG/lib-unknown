@@ -14,6 +14,22 @@
 
 ### 新增 (Added)
 
+-
+
+### 变更 (Changed)
+
+-
+
+### 修复 (Fixed)
+
+-
+
+---
+
+## [0.1.1] - 2026-10-04
+
+### 新增 (Added)
+
 - 为 `sys/unix/syscall` 的 20 个 `sys_*` 封装、`SysResult` / `SysErr` / `ErrorMessage`（含 `as_str`）及各平台 `constants` / `flags` / `ptrace_req` 模块补齐 rustdoc，新增 23 个 doctest；残余单常量摘要已更新 `TODO_DOCS.md`
 - 为全部 12 个模块文件补 `//!` 模块头文档；为 `dyntest` 全公有 API（`SystemError` / `DnyResult` / `DnyTask` / `BatchRunner` / `dny_run*` / `DnyRun` / `DynTestLock` / `clear_dny_project`，含公有字段与 `# Panics`）及 `types` 全公有 API（`Bytes` / `Str` trait、`StackBytes` / `HeapBytes` / `StackStr` / `HeapStr`、`BytesError` / `StrError`，含 `# Errors` / `# Panics`）补齐 rustdoc，新增 38 个 doctest；`TODO_DOCS.md` 删除已完成 7 行，残余 4 行
 - `Cargo.toml` 新增 `[package.metadata.docs.rs]`（`all-features = true`）；公开模块加 `#[cfg_attr(docsrs, doc(cfg(feature = "...")))]`
@@ -29,7 +45,7 @@
 
 - `.gitignore` 补齐标准 Rust 构建产物、密钥、IDE、操作系统条目（保留原有自定义内容）
 - 为 `unix::resolve`、`volatile_zero`、`zeroed_box`、`shuffle_with` 及 `str` 宏内两处 `unsafe` 块补 `SAFETY` 注释
-- `cargo fmt --check` 通过；`cargo clippy --lib --all-features -- -D warnings` 通过；`cargo test --all-features`（20 单元 + 35 doctest）与 `--no-default-features` doctest 通过；`cargo doc` 无警告（含 `broken_intra_doc_links`）
+- `cargo fmt --check` 通过；`cargo clippy --lib --all-features -- -D warnings` 通过；`cargo test --all-features`（20 单元 + 73 doctest）与 `--no-default-features` doctest 通过；`cargo doc` 无警告（含 `broken_intra_doc_links`）；`i686-unknown-linux-gnu` 检查通过
 - 修复 32 位 x86 专属 `sys_mmap` 分支的 `SysErr::Arg("...".to_string())` 类型错误，改为直接构造 `ErrorMessage`（截断语义与 `FromStr` 一致）；新增 `i686-unknown-linux-gnu` 工具链验证通过
 - 修复 x86 下 `syscall4/5/6` 内联汇编显式使用 `esi` 被 LLVM 拒绝的问题，改用 `push/mov/pop esi` 传递（与既有 `ebp` 处理一致）；修复 `rand::reg_sig` x86 分支数字标签 `1:` 触发的 `binary_asm_labels` 错误，改用 `2:` 编号
 
