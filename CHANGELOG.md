@@ -14,6 +14,22 @@
 
 ### 新增 (Added)
 
+-
+
+### 变更 (Changed)
+
+-
+
+### 修复 (Fixed)
+
+-
+
+---
+
+## [0.1.5] - 2026-10-05
+
+### 新增 (Added)
+
 - `dyntest`: 新增 `DnyRun::bin_path()`，返回当前配置下产物可执行文件的预期路径（考虑 `target-dir` 配置、`is_release` 与平台后缀），`run_no_build()` 改为复用它
 - `dyntest`: 新增 `DnyRun::cargo(&[args], timeout)` 通用入口，原样透传 `cargo <args>`（`check` / `test` / `clippy` 等），耗时记入 `run_duration`，`build_duration` 恒为零
 - `dyntest`: `SystemError` 新增 `CargoFailed` 变体，`cargo()` 正常退出但退出码非零时置该错误并保留 `stdout` / `stderr` / `exit_code` 供诊断；`DnyResult` 展示新增 `CARGO ERROR (CE)` 分支
@@ -22,6 +38,7 @@
 
 - `dyntest`: `SystemError` 加 `#[non_exhaustive]`，后续新增变体不再是对下游穷举匹配的破坏性变更；`CompileFailed` 文档明确为退出码非零
 - `dyntest`: `cargo()` 明确**不透传 `is_release`**，与 `build()` 自动追加 `--release` 不同，需要 release 行为时由调用者显式传入（如 `&["test", "--release"]`）
+- `rand` / `dyntest` 公开 API 文档补齐：4 处 `unsafe` 块补 `SAFETY` 注释、`Random` / `SampleRange` 取值语义与示例、`shuffle` 算法说明；零行为变更
 
 ### 修复 (Fixed)
 
