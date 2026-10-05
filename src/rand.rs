@@ -65,6 +65,7 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 ///
 /// 读取 x86(`RDTSC`)/aarch64(`CNTVCT_EL0`)/RISC-V(`rdtime`) 等计数器，
 /// 用 Q48 定点乘子换算为纳秒级单调时钟。
+/// 连续调用通常递增，但在虚拟化/热迁移下不保证严格单调；求差值请用 `wrapping_sub`。
 ///
 /// # Feature Requirement
 ///
@@ -77,7 +78,7 @@ use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 ///
 /// let t1 = probe();
 /// let t2 = probe();
-/// assert!(t2 >= t1 || t2.wrapping_sub(t1) < u64::MAX);
+/// let _delta_ns = t2.wrapping_sub(t1);
 /// ```
 #[inline(always)]
 pub fn probe() -> u64 {
@@ -89,6 +90,7 @@ pub fn probe() -> u64 {
         #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
         {
             #[cfg(target_arch = "x86_64")]
+            // SAFETY: `_rdtsc` 仅读取时间戳计数器，不访问内存，不影响内存安全。
             unsafe {
                 core::arch::x86_64::_rdtsc()
             }
@@ -248,6 +250,8 @@ fn reg_sig() -> u64 {
     // 64位架构支持
     // ==========================================
     #[cfg(target_arch = "x86_64")]
+    // SAFETY: 仅读取标志寄存器、指令指针与栈指针到通用寄存器，
+    // 所有输出经 `out(reg)` 声明，无内存读写，无别名违反。
     unsafe {
         core::arch::asm!(
         "pushfq",
@@ -472,6 +476,7 @@ pub fn seed() -> u64 {
     let y = reg_sig();
     #[cfg(feature = "rand-safe-stack")]
     let stack: core::mem::MaybeUninit<[u8; STACK_MASK]> = core::mem::MaybeUninit::uninit();
+    // SAFETY: 仅做指针取址与类型转换，未解引用，不访问内存。
     let sp = unsafe {
         #[cfg(feature = "rand-safe-stack")]
         {
@@ -482,6 +487,9 @@ pub fn seed() -> u64 {
             black_box(&c as *const u8) // 大多数情况下rust程序使用的栈大于767字节
         }
     };
+    // SAFETY: 有意读取调用栈邻近字节作为抖动熵源，仅 volatile 读、不写入；
+    // `rand-safe-stack` 特性下指针指向 767 字节栈缓冲。默认特性下读取范围可能超出单个局部变量
+    // （实践中落在相邻栈内存，属本模块已接受的熵采集行为，见模块头测试记录），调用方不得依赖所读内容。
     let rs = |idx| unsafe { black_box(core::ptr::read_volatile(sp.add(idx))).saturating_add(2) };
     let t2s = |t: u64, mut s: u64, i: u8| {
         if t.rotate_left(i as u32) as u8 & 1 == 0 {
@@ -540,7 +548,10 @@ pub fn seed() -> u64 {
     mix64(s)
 }
 
-/// 使用系统熵原地打乱可变序列。
+/// 使用系统熵打乱序列，并将所有权返回给调用者。
+///
+/// 基于 Fisher–Yates 洗牌（见 [`shuffle_with`]，索引选取采用 Lemire 无偏约减），熵源取自 [`next`]；
+/// 空序列与单元素序列保持不变。
 ///
 /// # Feature Requirement
 ///
@@ -553,6 +564,10 @@ pub fn seed() -> u64 {
 ///
 /// let v = shuffle([0, 1, 2, 3, 4, 5, 6, 7]);
 /// assert_eq!(v.len(), 8);
+/// // 洗牌是原序列的一个置换：排序后应与原序列一致。
+/// let mut sorted = v;
+/// sorted.sort_unstable();
+/// assert_eq!(sorted, [0, 1, 2, 3, 4, 5, 6, 7]);
 /// ```
 pub fn shuffle<T, U>(mut table: U) -> U
 where
@@ -761,6 +776,11 @@ pub fn next() -> u64 {
 #[cfg(feature = "rand-expand")]
 /// 可随机生成的类型。
 ///
+/// 熵源取自 [`next`]。各实现的取值语义：
+/// - 整数：取 `next()` 输出并截断为目标位宽（`as` 转换）；
+/// - `bool`：取最低位；
+/// - 浮点（`f32` / `f64`）：`[0, 1)` 区间内均匀分布。
+///
 /// # Feature Requirement
 ///
 /// 需要启用 `"rand-expand"` 特性。
@@ -774,14 +794,15 @@ pub fn next() -> u64 {
 /// let _ = v;
 /// ```
 pub trait Random {
+    /// 生成一个该类型的随机值（语义见 trait 级文档）。
     fn random() -> Self;
 }
 #[cfg(feature = "rand-expand")]
-/// 生成指定类型的随机值。
+/// 生成指定类型的随机值（`T::random()` 的便捷包装）。
 ///
 /// # Feature Requirement
 ///
-/// 需要启用 `"rand-expand"` 特性.
+/// 需要启用 `"rand-expand"` 特性。
 ///
 /// # Examples
 ///
@@ -836,6 +857,9 @@ impl Random for f32 {
 #[cfg(feature = "rand-expand")]
 /// 用随机字节填充切片。
 ///
+/// 按 8 字节分块以小端序写入（每块取一次 [`next`] 输出），
+/// 尾部不足 8 字节时截取新一次输出的前缀。
+///
 /// # Feature Requirement
 ///
 /// 需要启用 `"rand-expand"` 特性。
@@ -863,16 +887,33 @@ pub fn fill_bytes(dest: &mut [u8]) {
 #[cfg(feature = "rand-expand")]
 /// 可从区间采样的类型。
 ///
+/// - 整数区间采用拒绝采样实现无偏取模，不引入模偏差；
+/// - 浮点区间按 `start + random::<T>() * (end - start)` 缩放。
+///
 /// # Feature Requirement
 ///
 /// 需要启用 `"rand-expand"` 特性。
+///
+/// # Examples
+///
+/// ```rust
+/// use lib_unknown::rand::random_range;
+///
+/// let v = random_range(0..10u32);
+/// assert!(v < 10);
+/// ```
 pub trait SampleRange {
+    /// 采样输出类型（与区间元素类型一致）。
     type Output;
+    /// 执行一次采样（约束违反时 panic，见 [`random_range`]）。
     fn sample(self) -> Self::Output;
 }
 
 #[cfg(feature = "rand-expand")]
 /// 从区间中均匀采样一个随机值，整数用无偏取模实现。
+///
+/// 浮点闭区间（`..=`）的上界实际上不可达（`random::<T>() < 1` 恒成立），
+/// `start == end` 时直接返回该值。
 ///
 /// # Feature Requirement
 ///

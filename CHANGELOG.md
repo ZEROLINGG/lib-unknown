@@ -14,15 +14,36 @@
 
 ### 新增 (Added)
 
--
+- `dyntest`: 新增 `DnyRun::bin_path()`，返回当前配置下产物可执行文件的预期路径（考虑 `target-dir` 配置、`is_release` 与平台后缀），`run_no_build()` 改为复用它
+- `dyntest`: 新增 `DnyRun::cargo(&[args], timeout)` 通用入口，原样透传 `cargo <args>`（`check` / `test` / `clippy` 等），耗时记入 `run_duration`，`build_duration` 恒为零
+- `dyntest`: `SystemError` 新增 `CargoFailed` 变体，`cargo()` 正常退出但退出码非零时置该错误并保留 `stdout` / `stderr` / `exit_code` 供诊断；`DnyResult` 展示新增 `CARGO ERROR (CE)` 分支
 
 ### 变更 (Changed)
 
--
+- `dyntest`: `SystemError` 加 `#[non_exhaustive]`，后续新增变体不再是对下游穷举匹配的破坏性变更；`CompileFailed` 文档明确为退出码非零
+- `dyntest`: `cargo()` 明确**不透传 `is_release`**，与 `build()` 自动追加 `--release` 不同，需要 release 行为时由调用者显式传入（如 `&["test", "--release"]`）
 
 ### 修复 (Fixed)
 
--
+- 恢复 README 快速开始示例的特性门控（隐藏 `cfg(all(feature = "rand", feature = "types"))` 包裹，缺特性时以空 `main` 兜底），修复 `cargo test --doc --no-default-features` 失败；示例前注明所需特性（默认已启用）
+
+---
+
+## [0.1.4] - 2026-10-05
+
+### 变更 (Changed)
+
+- 仅版本号提升（`0.1.3` → `0.1.4`），无功能、文档与依赖变更
+
+---
+
+## [0.1.3] - 2026-10-05
+
+### 变更 (Changed)
+
+- README 全面重写：简介改为高隐蔽性底层原语库定位；章节精简（移除设计哲学、权衡取舍、非目标、MSRV、安全性、贡献、变更日志、开源协议小节，目录同步）；依赖声明改为 `default-features = false` + 按需 `features` 写法；示例改用 `probe` / `seed` / `next` / `random_range` / `fill_bytes` 完整链路
+- README 依赖示例版本号由 `0.1.2` 改为 `0.1` 兼容区间
+- `crypto`：`mix64` 文档改为"带 SBox 头尾扰动和前馈的不可逆 64 位雪崩混合函数"；
 
 ---
 

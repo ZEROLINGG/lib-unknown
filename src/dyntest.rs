@@ -17,6 +17,8 @@ use crate::rand;
 
 /// 动态测试运行的系统级错误（区别于被测程序自身的失败）。
 ///
+/// 未来可能新增变体，请勿依赖穷尽匹配（匹配时请保留通配分支）。
+///
 /// # Feature Requirement
 ///
 /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
@@ -1049,6 +1051,19 @@ edition = "2021"
     /// # Feature Requirement
     ///
     /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::DnyRun;
+    ///
+    /// let runner = DnyRun::new("fn main() {}", "");
+    /// let build_res = runner.build(None);
+    /// assert!(build_res.ok);
+    ///
+    /// let res = runner.run_no_build(None, None);
+    /// assert!(res.ok);
+    /// ```
     pub fn run_no_build(
         &self,
         timeout: Option<Duration>,
