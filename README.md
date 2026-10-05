@@ -48,14 +48,10 @@ lib-unknown = { version = "0.1", default-features = false, features = ["sys", "r
 运行此示例需启用 `rand` 与 `types` 特性（默认已启用）。
 
 ```rust
-# #[cfg(all(feature = "rand", feature = "types"))]
+#![cfg(all(feature = "rand", feature = "types"))]
 use lib_unknown::rand::{probe, seed, next, fill_bytes, random_range};
-# #[cfg(all(feature = "rand", feature = "types"))]
 use lib_unknown::types::bytes::StackBytes;
 
-# #[cfg(not(all(feature = "rand", feature = "types")))]
-# fn main() {}
-# #[cfg(all(feature = "rand", feature = "types"))]
 fn main() {
     // 1. 硬件时间戳探针
     let t1 = probe();
@@ -75,7 +71,6 @@ fn main() {
     let mut key_buf = [0u8; 32];
     fill_bytes(&mut key_buf);
 }
-
 ```
 
 ---
