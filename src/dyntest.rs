@@ -21,13 +21,17 @@ use crate::rand;
 ///
 /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum SystemError {
     /// 无系统级错误；`ok == false` 时表示被测程序自身返回非零退出码。
     None,
     /// 执行超时并已被终止，载荷为超时阈值。
     Timeout(Duration),
-    /// `cargo build` 失败。
+    /// `cargo build` 失败（退出码非零）。
     CompileFailed,
+    /// [`DnyRun::cargo`](crate::dyntest::DnyRun::cargo) 执行的自定义 `cargo <args>`
+    /// 命令返回非零退出码（超时、启动失败除外，分别记为 `Timeout` / `ProcessSpawnFailed`）。
+    CargoFailed,
     /// 子进程无法启动，载荷为系统错误描述。
     ProcessSpawnFailed(String),
 }
@@ -156,6 +160,7 @@ impl fmt::Display for DnyResult {
             SystemError::None => (red, "FAILED (Runtime Error)"),
             SystemError::Timeout(_) => (yellow, "TIMEOUT (TLE)"),
             SystemError::CompileFailed => (red, "COMPILE ERROR (CE)"),
+            SystemError::CargoFailed => (red, "CARGO ERROR (CE)"),
             SystemError::ProcessSpawnFailed(_) => (red, "SYSTEM ERROR"),
         };
 
@@ -971,17 +976,32 @@ edition = "2021"
         self.run_no_build(timeout, Some(build_result))
     }
 
-    /// 不重新编译，直接运行已有产物（产物缺失时返回 [`SystemError::ProcessSpawnFailed`] 结果）。
-    /// `build_result` 用于透传编译耗时，无则置零。
+    /// 计算当前配置下产物可执行文件的预期路径（不保证文件已存在）。
+    ///
+    /// 路径由以下因素决定：
+    /// - 工程目录下的 `target` 子目录：若 `.cargo/config.toml` 中配置了
+    ///   `[build]` 段下以 `target` 开头的键（如 `target` 或 `target-dir`），
+    ///   则按配置值拼接实际输出目录；
+    /// - [`is_release`](Self::is_release) 决定使用 `release` 还是 `debug` profile 子目录；
+    /// - 当前运行平台决定可执行文件后缀（Windows 为 `.exe`，否则无后缀）。
     ///
     /// # Feature Requirement
     ///
     /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
-    pub fn run_no_build(
-        &self,
-        timeout: Option<Duration>,
-        build_result: Option<DnyResult>,
-    ) -> DnyResult {
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::DnyRun;
+    ///
+    /// let runner = DnyRun::new("fn main() {}", "");
+    /// let build_res = runner.build(None);
+    /// assert!(build_res.ok);
+    ///
+    /// let path = runner.bin_path();
+    /// assert!(path.exists(), "产物路径应在编译成功后存在: {}", path.display());
+    /// ```
+    pub fn bin_path(&self) -> PathBuf {
         let mut target_dir = self.dir.join("target");
 
         if let Some(cfg_str) = &self.cargo_config {
@@ -1020,7 +1040,21 @@ edition = "2021"
         };
 
         let profile_dir = if self.is_release { "release" } else { "debug" };
-        let bin_path = target_dir.join(profile_dir).join(&exe_name);
+        target_dir.join(profile_dir).join(exe_name)
+    }
+
+    /// 不重新编译，直接运行已有产物（产物缺失时返回 [`SystemError::ProcessSpawnFailed`] 结果）。
+    /// `build_result` 用于透传编译耗时，无则置零。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    pub fn run_no_build(
+        &self,
+        timeout: Option<Duration>,
+        build_result: Option<DnyResult>,
+    ) -> DnyResult {
+        let bin_path = self.bin_path();
 
         let build_result = build_result.unwrap_or_default();
         let mut result = DnyResult {
@@ -1054,6 +1088,68 @@ edition = "2021"
             }
         }
 
+        result
+    }
+
+    /// 在工程目录下执行自定义 `cargo <args>` 命令（如 `cargo test`、`cargo check`、
+    /// `cargo clippy` 等），超时则终止并记为 [`SystemError::Timeout`]；
+    /// 自身不 panic，失败均体现在返回的 [`DnyResult`] 中。
+    ///
+    /// 耗时记为 [`DnyResult::run_duration`]，[`DnyResult::build_duration`] 恒为 `Duration::ZERO`。
+    ///
+    /// # Note: 不透传 `is_release`
+    ///
+    /// 与 [`build`](Self::build) 不同，本方法**不会**根据 `is_release` 自动追加
+    /// `--release`，`args` 将原样透传给 `cargo`。需要 release 行为时请调用者显式传入：
+    /// `runner.cargo(&["test", "--release"], None)`。
+    ///
+    /// # 错误语义
+    ///
+    /// - `cargo` 进程启动失败 → [`SystemError::ProcessSpawnFailed`]；
+    /// - 超时被终止 → [`SystemError::Timeout`]；
+    /// - 正常退出但退出码非零（如 `check`/`test` 未通过）→ [`SystemError::CargoFailed`]，
+    ///   此时 [`DnyResult::ok`] 为 `false`，`stdout`/`stderr`/`exit_code` 保留子进程输出供诊断；
+    /// - 退出码为 0 → `ok == true`，`system_err == SystemError::None`。
+    ///
+    /// # Feature Requirement
+    ///
+    /// 需要同时启用 `"dyntest"` 与 `"std"` 特性。
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use lib_unknown::dyntest::DnyRun;
+    ///
+    /// let runner = DnyRun::new("fn main() {}", "");
+    /// let res = runner.cargo(&["check"], None);
+    /// assert!(res.ok);
+    ///
+    /// // release 行为不会自动追加，需显式传入：
+    /// let res = runner.cargo(&["test", "--release"], None);
+    /// assert!(res.ok);
+    /// ```
+    pub fn cargo(&self, args: &[&str], timeout: Option<Duration>) -> DnyResult {
+        let mut result = DnyResult::default();
+        let mut cmd = Command::new("cargo");
+        cmd.args(args).current_dir(&self.dir);
+        cmd.envs(&self.envs);
+
+        match Self::execute_cmd(&mut cmd, timeout) {
+            Ok((output, duration)) => {
+                result.run_duration = duration;
+                result.stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                result.stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                result.exit_code = output.status.code().unwrap_or(-1);
+                result.ok = output.status.success();
+                if !result.ok {
+                    result.system_err = SystemError::CargoFailed;
+                }
+            }
+            Err(sys_err) => {
+                result.system_err = sys_err;
+                result.exit_code = -2;
+            }
+        }
         result
     }
 
