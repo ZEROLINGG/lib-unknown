@@ -13,7 +13,7 @@
 
 ## 目录
 
-- [核心能力与设计意图](#核心能力与设计意图)
+- [核心能力](#核心能力)
 - [快速开始](#快速开始)
 - [API 预览与模块设计](#api-预览与模块设计)
 - [典型应用场景](#典型应用场景)
@@ -40,7 +40,7 @@
 
 ```toml
 [dependencies]
-lib-unknown = { version = "0.1.2", default-features = false, features = ["sys", "rand", "rand-expand", "types"] }
+lib-unknown = { version = "0.1", default-features = false, features = ["sys", "rand", "rand-expand", "types"] }
 ```
 
 ### 示例
