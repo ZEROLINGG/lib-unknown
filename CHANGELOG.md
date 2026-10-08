@@ -14,11 +14,11 @@
 
 ### 新增 (Added)
 
--
+- `types`: 新增 `cstr` 模块（`types-cstr` 特性，`types` 聚合默认启用）：`StackCStr` / `HeapCStr`（需 `alloc`）定容 NUL 结尾 C 字符串容器，`N` 含结尾 `\0`，允许非 UTF-8 载荷，`Drop` 时易失清零，可经 `as_cstr` / `as_ptr` 直喂 `sys_open` / `sys_execve` 等取 `core::ffi::CStr` 的调用；配套 `CStr` trait、`CStrError` 及 `try_grow` / `push_bytes_into` / `concat_into` / `into_heap` / `from_raw_parts_mut` / `FromStr`
 
 ### 变更 (Changed)
 
--
+- `README` 快速开始示例改用双 `main` 门控（特性齐全时跑完整链路，缺特性时以空 `main` 兜底），`cargo test --doc --no-default-features` 通过；特性表与模块树补 `types-cstr` / `StackCStr` 说明
 
 ### 修复 (Fixed)
 

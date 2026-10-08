@@ -48,9 +48,11 @@ sys = [
 
 types-bytes = []
 types-str = ["types-bytes"]
+types-cstr = ["types-bytes"]
 types = [
     "types-str",
-    "types-bytes"
+    "types-bytes",
+    "types-cstr",
 ]
 
 crypto = []

@@ -48,11 +48,11 @@ lib-unknown = { version = "0.1", default-features = false, features = ["sys", "r
 运行此示例需启用 `rand` 与 `types` 特性（默认已启用）。
 
 ```rust
-#![cfg(all(feature = "rand", feature = "types"))]
-use lib_unknown::rand::{probe, seed, next, fill_bytes, random_range};
-use lib_unknown::types::bytes::StackBytes;
-
+#[cfg(all(feature = "rand", feature = "types"))]
 fn main() {
+    use lib_unknown::rand::{probe, seed, next, fill_bytes, random_range};
+    use lib_unknown::types::bytes::StackBytes;
+
     // 1. 硬件时间戳探针
     let t1 = probe();
     let t2 = probe();
@@ -71,6 +71,10 @@ fn main() {
     let mut key_buf = [0u8; 32];
     fill_bytes(&mut key_buf);
 }
+
+// 缺特性时以空 main 兜底，保证 --no-default-features 下 doctest 可编译。
+#[cfg(not(all(feature = "rand", feature = "types")))]
+fn main() {}
 ```
 
 ---
@@ -82,7 +86,8 @@ lib_unknown
 ├── sys       — 裸 syscall0~6，PEB/EAT 动态导出表解析，绕过 Hook 的底层调用
 ├── rand      — 硬件微架构 (RDTSC) 探针，无 OS API 依赖的熵源生成与环境感知
 ├── crypto    — 非标准混淆与实验性雪崩搅拌，用于消除数据静态特征
-├── types     — 栈/堆上防转储容器 (StackBytes/StackStr)， Drop 时强行覆写擦除
+├── types     — 栈/堆上防转储容器 (StackBytes/StackStr/StackCStr)， Drop 时强行覆写擦除
+│               其中 `cstr` 为 NUL 结尾 C 字符串（允许非 UTF-8），可直喂 `sys_open` 等调用
 └── dyntest   — (std-only) 动态代码块编译与内存执行 Harness，用于验证内存加载器
 ```
 
@@ -106,7 +111,8 @@ lib_unknown
 |-----------------|------------------------------------------|
 | `sys`           | 启用直接系统调用与动态符号解析                          |
 | `rand`          | 启用硬件级微架构熵源生成器                            |
-| `types`         | 启用用后即焚的内存安全容器（`StackBytes` / `StackStr`） |
+| `types`         | 启用用后即焚的内存安全容器（`StackBytes` / `StackStr` / `StackCStr`） |
+| `types-cstr`    | 启用 NUL 结尾 C 字符串容器（`StackCStr` / `HeapCStr`，允许非 UTF-8） |
 | `crypto`        | 启用用于特征消除的混淆与流密码原语                        |
 | `std` / `alloc` | 显式开启堆支持                                  |
 

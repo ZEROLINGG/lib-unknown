@@ -14,7 +14,12 @@ pub mod rand;
 #[cfg_attr(docsrs, doc(cfg(feature = "sys")))]
 pub mod sys;
 
-#[cfg(any(feature = "types", feature = "types-str", feature = "types-bytes"))]
+#[cfg(any(
+    feature = "types",
+    feature = "types-str",
+    feature = "types-bytes",
+    feature = "types-cstr"
+))]
 #[cfg_attr(docsrs, doc(cfg(feature = "types")))]
 pub mod types;
 
